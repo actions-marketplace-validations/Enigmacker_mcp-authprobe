@@ -50,4 +50,6 @@ export interface ScanReport {
   target: string;
   ownership: { verified: boolean; method: string | null; detail: string };
   findings: Finding[];
+  /** Imported mcp-posture results and how they relate to these findings (--posture-report). */
+  posture?: import("./posture.js").PostureSection;
 }

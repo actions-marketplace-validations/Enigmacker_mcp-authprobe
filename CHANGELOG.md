@@ -6,7 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-04
+
 ### Added
+
+- `--posture-report <file>`: merges an mcp-posture JSON report (schema 1.x) for the same URL into the scan. The table, JSON (`posture` block) and Markdown reports show mcp-posture's findings with their fingerprints, and relate each active result to the passive findings on the same subject: confirmed, only visible actively, or enforced despite what the metadata suggests. The file is size-capped, type-checked and neutralized; suppressed findings are left out; the exit code is unchanged. Also an input of the GitHub Action.
 
 - `Dockerfile` for the stdio MCP server, tested in CI (the image must answer `initialize` and `tools/list`), and `glama.json` for the Glama directory.
 
@@ -103,7 +107,8 @@ First release.
 - Hardening from an independent review before release: HTTPS is required for every request outside loopback/private labs; rate limits and server errors make redirect URI, registration and throttling checks inconclusive instead of passing; test grants record their target and token endpoint and are never used elsewhere (and must name their target in MCP mode); loopback targets need a proof in MCP mode unless listed in `MCP_AUTHPROBE_LAB_ORIGINS`; `login` output is neutralized; more IPv6 transition ranges are refused; a malformed issuer no longer aborts discovery.
 - Local fixture server with a stateful token endpoint, dynamic registration and an authorization endpoint and test suite; GitHub Actions CI.
 
-[Unreleased]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.4.0...v0.5.0

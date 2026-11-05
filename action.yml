@@ -29,6 +29,10 @@ inputs:
     description: Do not run these checks, same syntax. For example THR on a production server, to send no failed token requests.
     required: false
     default: ""
+  posture-report:
+    description: Path to an mcp-posture JSON report for the same URL, merged into the results (passive findings next to active ones).
+    required: false
+    default: ""
   throttle-attempts:
     description: Failed token requests sent by MAP-THR01 (5 to 20).
     required: false
@@ -87,6 +91,7 @@ runs:
         MAP_FAIL_ON: ${{ inputs.fail-on }}
         MAP_ONLY: ${{ inputs.only }}
         MAP_SKIP: ${{ inputs.skip }}
+        MAP_POSTURE: ${{ inputs.posture-report }}
         MAP_THROTTLE: ${{ inputs.throttle-attempts }}
         MAP_TIMEOUT: ${{ inputs.timeout }}
         MAP_ALLOW_PRIVATE: ${{ inputs.allow-private }}
@@ -104,6 +109,7 @@ runs:
         args=(scan "$MAP_URL" --fail-on "$MAP_FAIL_ON" --json "$out/report.json" --sarif "$out/report.sarif" --markdown "$out/report.md")
         [ -n "$MAP_ONLY" ] && args+=(--only "$MAP_ONLY")
         [ -n "$MAP_SKIP" ] && args+=(--skip "$MAP_SKIP")
+        [ -n "$MAP_POSTURE" ] && args+=(--posture-report "$MAP_POSTURE")
         [ -n "$MAP_THROTTLE" ] && args+=(--throttle-attempts "$MAP_THROTTLE")
         [ -n "$MAP_TIMEOUT" ] && args+=(--timeout "$MAP_TIMEOUT")
         [ "$MAP_ALLOW_PRIVATE" = "true" ] && args+=(--allow-private)

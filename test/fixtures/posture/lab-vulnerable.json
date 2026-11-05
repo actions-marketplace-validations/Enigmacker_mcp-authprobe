@@ -1,0 +1,232 @@
+{
+  "schema_version": "1.0",
+  "tool": {
+    "name": "mcp-posture",
+    "version": "1.1.3",
+    "information_uri": "https://github.com/batou9150/mcp-posture"
+  },
+  "generated_at": "2026-11-04T22:36:20Z",
+  "mode": "passive",
+  "fail_on": "high",
+  "targets": [
+    {
+      "target": "http://127.0.0.1:8787/mcp",
+      "name": null,
+      "source": "cli",
+      "reachable": true,
+      "error": null,
+      "spec_revision": "2026-07-28",
+      "revision_source": "default",
+      "transport": "unknown",
+      "auth_required": true,
+      "findings": [
+        {
+          "check_id": "MCPP-ASM03",
+          "title": "Authorization server endpoint not HTTPS",
+          "severity": "medium",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787",
+          "message": "authorization_endpoint is not HTTPS: http://127.0.0.1:8787/authorize.",
+          "key": "authorization_endpoint",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "5e094ae297be1db8dd419f0349180d3b"
+        },
+        {
+          "check_id": "MCPP-ASM03",
+          "title": "Authorization server endpoint not HTTPS",
+          "severity": "medium",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787",
+          "message": "issuer is not HTTPS: http://127.0.0.1:8787.",
+          "key": "issuer",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "aa30ff79cd258f64ec3c1fe7f337b4dd"
+        },
+        {
+          "check_id": "MCPP-ASM03",
+          "title": "Authorization server endpoint not HTTPS",
+          "severity": "medium",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787",
+          "message": "token_endpoint is not HTTPS: http://127.0.0.1:8787/token.",
+          "key": "token_endpoint",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "c37db68663f10c3d012634980426e27e"
+        },
+        {
+          "check_id": "MCPP-ASM03",
+          "title": "Authorization server endpoint not HTTPS",
+          "severity": "medium",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787",
+          "message": "registration_endpoint is not HTTPS: http://127.0.0.1:8787/register.",
+          "key": "registration_endpoint",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "de719bbe9caf4e897528079c1f0b473a"
+        },
+        {
+          "check_id": "MCPP-ASM10",
+          "title": "Dynamic Client Registration without Client ID Metadata Documents",
+          "severity": "medium",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787",
+          "message": "The authorization server offers DCR but not Client ID Metadata Documents.",
+          "key": "",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "272fa466b530f3740a898d3103d309d3"
+        },
+        {
+          "check_id": "MCPP-AUTHN04",
+          "title": "resource_metadata URL not HTTPS or on another origin",
+          "severity": "medium",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787/.well-known/oauth-protected-resource/mcp",
+          "message": "resource_metadata points to a non-HTTPS URL: http://127.0.0.1:8787/.well-known/oauth-protected-resource/mcp.",
+          "key": "",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "288011e01800839380bc49f03b22cd13"
+        },
+        {
+          "check_id": "MCPP-PRM05",
+          "title": "Authorization server issuer not HTTPS",
+          "severity": "medium",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787/.well-known/oauth-protected-resource/mcp",
+          "message": "Authorization server 'http://127.0.0.1:8787' is not an https URL.",
+          "key": "http://127.0.0.1:8787",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "737e419dacc11cec6c2fced0a10c1a9b"
+        },
+        {
+          "check_id": "MCPP-CIMD01",
+          "title": "Client ID Metadata Documents not advertised",
+          "severity": "low",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787",
+          "message": "client_id_metadata_document_supported is not true.",
+          "key": "",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "137338aa905e4e1d45bd975fb54712fb"
+        },
+        {
+          "check_id": "MCPP-TRN10",
+          "title": "Weak security headers on discovery endpoints",
+          "severity": "low",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787/.well-known/oauth-protected-resource/mcp",
+          "message": "http://127.0.0.1:8787/.well-known/oauth-protected-resource/mcp: missing X-Content-Type-Options: nosniff.",
+          "key": "",
+          "evidence": [
+            {
+              "summary": "metadata response headers",
+              "request": "GET http://127.0.0.1:8787/.well-known/oauth-protected-resource/mcp",
+              "status": 200,
+              "excerpt": null
+            }
+          ],
+          "suppression": null,
+          "fingerprint": "5d277bd8070efe49942dff065e043cde"
+        },
+        {
+          "check_id": "MCPP-TRN10",
+          "title": "Weak security headers on discovery endpoints",
+          "severity": "low",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787/.well-known/oauth-authorization-server",
+          "message": "http://127.0.0.1:8787/.well-known/oauth-authorization-server: missing X-Content-Type-Options: nosniff.",
+          "key": "",
+          "evidence": [
+            {
+              "summary": "metadata response headers",
+              "request": "GET http://127.0.0.1:8787/.well-known/oauth-authorization-server",
+              "status": 200,
+              "excerpt": null
+            }
+          ],
+          "suppression": null,
+          "fingerprint": "632a2aecd62faad7eeef9f28108baafd"
+        },
+        {
+          "check_id": "MCPP-ASM08",
+          "title": "Resource indicator (RFC 8707) enforcement not verified",
+          "severity": "info",
+          "confidence": "low",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787",
+          "message": "Audience restriction (RFC 8707) cannot be verified by a passive scan.",
+          "key": "",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "6eb60d2338dd228add6c6fa604bae52c"
+        },
+        {
+          "check_id": "MCPP-ASM09",
+          "title": "Dynamic Client Registration endpoint exposed",
+          "severity": "info",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787",
+          "message": "registration_endpoint advertised: http://127.0.0.1:8787/register.",
+          "key": "",
+          "evidence": [],
+          "suppression": null,
+          "fingerprint": "89b63f0093772c80a7c6558566a49ac8"
+        },
+        {
+          "check_id": "MCPP-CIMD02",
+          "title": "Client registration strategies",
+          "severity": "info",
+          "confidence": "high",
+          "target": "http://127.0.0.1:8787/mcp",
+          "location": "http://127.0.0.1:8787",
+          "message": "Registration paths offered: DCR, pre-registration.",
+          "key": "",
+          "evidence": [
+            {
+              "summary": "strategies",
+              "request": null,
+              "status": null,
+              "excerpt": "DCR, pre-registration"
+            }
+          ],
+          "suppression": null,
+          "fingerprint": "2204f93f6db047a76a9789d83fe57d0f"
+        }
+      ],
+      "not_applicable": [
+        "MCPP-ASM13",
+        "MCPP-TRN08"
+      ]
+    }
+  ],
+  "summary": {
+    "targets": 1,
+    "unreachable": 0,
+    "findings": {
+      "info": 3,
+      "low": 3,
+      "medium": 7,
+      "high": 0,
+      "critical": 0
+    },
+    "suppressed": 0
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "mcp-authprobe",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "mcpName": "io.github.Enigmacker/mcp-authprobe",
   "description": "Active authorization testing for remote MCP servers you own: refresh token rotation, redirect_uri strictness and more, as a CLI and an MCP server.",
   "license": "MIT",

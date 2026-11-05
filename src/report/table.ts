@@ -73,6 +73,17 @@ export function toTable(report: ScanReport, options: TableOptions = {}): string 
     out.push(`  ${paint(COLOR[g.status], STATUS_LABEL[g.status].padEnd(12))} ${g.ids.join(", ")}`);
     out.push(paint(DIM, `      ${message}`));
   }
+  if (report.posture) {
+    const p = report.posture;
+    const bySeverity = [...SEVERITY_ORDER].reverse().map((s) => [s, p.findings.filter((f) => f.severity === s).length] as const).filter(([, n]) => n > 0);
+    out.push("", paint(BOLD, `  ${p.tool.name} ${p.tool.version} (passive)`) + `: ${p.findings.length} finding(s)${bySeverity.length > 0 ? ` (${bySeverity.map(([s, n]) => `${n} ${s}`).join(", ")})` : ""}`);
+    const KIND: Record<string, string> = { confirmed: "confirmed", "active-only": "active only", enforced: "enforced" };
+    for (const c of p.correlations) {
+      const colour = c.kind === "enforced" ? COLOR.pass : COLOR.fail;
+      out.push(`  ${paint(colour, (KIND[c.kind] ?? c.kind).padEnd(12))} ${c.checkId.padEnd(10)} ${c.message}`);
+    }
+    if (options.verbose) for (const f of p.findings) out.push(paint(DIM, `      ${f.severity.padEnd(8)} ${f.checkId.padEnd(13)} ${f.message}`));
+  }
   const count = (s: CheckStatus): number => report.findings.filter((f) => f.status === s).length;
   const parts = [
     paint(COLOR.fail, `${count("fail")} failing`),

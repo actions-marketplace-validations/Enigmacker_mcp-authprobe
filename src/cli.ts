@@ -12,6 +12,7 @@ import { toSarif } from "./report/sarif.js";
 import { colorWanted, toTable } from "./report/table.js";
 import { scan } from "./scan.js";
 import { parseSelection } from "./selection.js";
+import { loadPostureReport, postureSection, type LoadedPosture } from "./posture.js";
 import { severityAtLeast, type Severity } from "./types.js";
 import { TOOL_NAME, TOOL_VERSION } from "./version.js";
 
@@ -48,6 +49,9 @@ Scan options:
   --throttle-attempts <n>
                         Failed token requests sent by MAP-THR01 (5-20, default 10)
   --verbose             Show every evidence line (default: failing checks only)
+  --posture-report <file>
+                        Merge an mcp-posture JSON report for the same URL: what the
+                        server announces next to what it enforces
   --only <list>         Run only these checks: IDs (MAP-RDR01 or RDR01) or families (RDR),
                         comma-separated; the others are reported as skipped
   --skip <list>         Do not run these checks (same syntax; wins over --only)
@@ -112,6 +116,7 @@ export async function main(argv: string[]): Promise<number> {
       out: { type: "string" },
       "throttle-attempts": { type: "string" },
       only: { type: "string" },
+      "posture-report": { type: "string" },
       skip: { type: "string" },
       browser: { type: "string" },
       "browser-path": { type: "string" },
@@ -326,9 +331,21 @@ export async function main(argv: string[]): Promise<number> {
       }
     }
 
+    let posture: LoadedPosture | null = null;
+    if (values["posture-report"]) {
+      try {
+        posture = loadPostureReport(values["posture-report"], url.toString());
+        for (const w of posture.warnings) err(`warning: ${w}\n`);
+      } catch (e) {
+        err(`${(e as Error).message}\n`);
+        return EXIT.usage;
+      }
+    }
+
     let report;
     try {
       report = await scan(url.toString(), options);
+      if (posture) report.posture = postureSection(report.findings, posture);
     } catch (e) {
       err(`Scan failed: ${(e as Error).message}\n`);
       return EXIT.error;

@@ -32,6 +32,7 @@ Passive scanners read what a remote [Model Context Protocol](https://modelcontex
 - [Consent CSRF check](#consent-csrf-check)
 - [Use it from an MCP client](#use-it-from-an-mcp-client)
 - [What it checks](#what-it-checks)
+- [Combine with mcp-posture](#combine-with-mcp-posture)
 - [Reports and exit codes](#reports-and-exit-codes)
 - [GitHub Action](#github-action)
 - [Safety of the scanner](#safety-of-the-scanner)
@@ -58,7 +59,7 @@ Good tools already exist, and this one is meant to sit next to them, not replace
 | [MCPJam OAuth conformance](https://docs.mcpjam.com/cli/oauth-conformance) | Runs real OAuth flows and checks conformance, with a few negative checks | Basic redirect URI rejection. No refresh token replay, throttling or consent CSRF. |
 | [Cisco mcp-scanner](https://github.com/cisco-ai-defense/mcp-scanner), [Snyk agent-scan](https://github.com/snyk/agent-scan) | Malicious tools, configs, local servers | None. |
 
-`mcp-authprobe` focuses on what only an **active, authorized** test can confirm, and uses check IDs (`MAP-…`) that do not clash with mcp-posture's (`MCPP-…`), so both reports can be read side by side.
+`mcp-authprobe` focuses on what only an **active, authorized** test can confirm, and uses check IDs (`MAP-…`) that do not clash with mcp-posture's (`MCPP-…`). mcp-posture reserves its own active IDs for this and points here; the two reports can be [merged into one](#combine-with-mcp-posture).
 
 ## Install
 
@@ -392,6 +393,36 @@ mcp-authprobe scan https://mcp.example.com/mcp --only RDR02      # re-check one 
 
 A check that is not selected sends **no request** and is listed as `skipped (not selected)`, so a report never suggests it passed. The three refresh token checks are one sequence: selecting any of them runs the three (the others are then reported as not selected), and skipping all three leaves the test grant untouched. The MCP server's `scan` tool takes the same `only` and `skip` arguments.
 
+## Combine with mcp-posture
+
+[mcp-posture](https://github.com/batou9150/mcp-posture) reads what a server **announces**; mcp-authprobe tests what it **enforces**. Run mcp-posture first, then hand its JSON report to the scan:
+
+```sh
+mcp-posture scan https://mcp.example.com/mcp --json posture.json
+mcp-authprobe scan https://mcp.example.com/mcp --posture-report posture.json --markdown report.md
+```
+
+The report gains a passive section with mcp-posture's findings (with their stable fingerprints) and one line per subject both tools look at:
+
+| Relation | Meaning |
+| --- | --- |
+| **confirmed** | mcp-posture saw a sign in the metadata, and the active test proves the weakness |
+| **active only** | the metadata gives no sign of it, but the active test proves the weakness (for example PKCE advertised but not enforced) |
+| **enforced** | mcp-posture flags it from the metadata, or cannot verify it passively (`MCPP-ASM08`, token audience), but the active test shows it is enforced |
+
+| mcp-authprobe | mcp-posture, passive | mcp-posture IDs reserved for active tests |
+| --- | --- | --- |
+| `MAP-DSC01` | `MCPP-AUTHN01-03`, `MCPP-PRM01`, `MCPP-ASM01` | |
+| `MAP-PKC01` | `MCPP-ASM04`, `MCPP-ASM05` | `MCPP-ACT08` |
+| `MAP-AUD01` | `MCPP-ASM08` | `MCPP-ACT03`, `MCPP-ACT06` |
+| `MAP-TOK01` | `MCPP-PRM06` | `MCPP-ACT02` |
+| `MAP-SES01` | `MCPP-TRN08`, `MCPP-TRN09` | `MCPP-ACT04` |
+| `MAP-ORG01` | | `MCPP-ACT01` |
+| `MAP-RDR01`, `MAP-RDR02` | | `MCPP-ACT07` |
+| `MAP-RDR04` | `MCPP-ASM09` | `MCPP-ACT09` |
+
+The report must be mcp-posture's JSON (`schema_version` 1.x) and contain a result for the same URL. It is treated as untrusted input: size-capped, type-checked and neutralized like everything else. Suppressed mcp-posture findings are left out, and mcp-posture's findings never change mcp-authprobe's exit code. The merged results appear in the table, JSON (a `posture` block) and Markdown reports; SARIF keeps mcp-authprobe's results only, since mcp-posture writes its own.
+
 ## Reports and exit codes
 
 | Option | Output |
@@ -430,7 +461,7 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: Enigmacker/mcp-authprobe@v0.7.0
+      - uses: Enigmacker/mcp-authprobe@v0.8.0
         with:
           url: https://staging.example.com/mcp
           secret: ${{ secrets.MCP_AUTHPROBE_SECRET }}
@@ -447,11 +478,27 @@ The results table is added to the job summary. The step fails when a check fails
 | `fail-on` | `high` | Fail on a failing check at or above this severity |
 | `fail-on-inconclusive` | `false` | Also fail when a check is inconclusive (otherwise a warning). An unreachable target always fails |
 | `only` / `skip` | | Same as `--only` / `--skip` |
+| `posture-report` | | An mcp-posture JSON report to merge, see [Combine with mcp-posture](#combine-with-mcp-posture) |
 | `throttle-attempts`, `timeout` | | Same as the CLI options |
 | `upload-sarif` | `false` | Upload the SARIF report to code scanning (needs `security-events: write`) |
 | `allow-private` | `false` | For a lab started in the same job only |
 | `node-version` | `22` | Node.js used to run the scanner |
-| `package` | this release | npm package spec to run, e.g. `mcp-authprobe@0.7.0` |
+| `package` | this release | npm package spec to run, e.g. `mcp-authprobe@0.8.0` |
+
+Both tools have an Action, so the passive and active views fit in one job:
+
+```yaml
+      - uses: batou9150/mcp-posture@v1.2.0
+        with:
+          targets: https://staging.example.com/mcp
+          args: --json posture.json
+          fail: false   # let the active scan run too; each tool reports its own findings
+      - uses: Enigmacker/mcp-authprobe@v0.8.0
+        with:
+          url: https://staging.example.com/mcp
+          secret: ${{ secrets.MCP_AUTHPROBE_SECRET }}
+          posture-report: posture.json
+```
 
 Outputs: `exit-code`, `failed` (number of failing checks), `json-file`, `sarif-file`, `markdown-file`.
 
@@ -516,8 +563,12 @@ The scanner talks to servers that may be hostile, and it may be driven by an AI 
 **0.7.0**
 - ~~Readable terminal output and an animated demo~~ done.
 
+**0.8.0**
+- ~~Import of mcp-posture reports, merged with the active results~~ done.
+- ~~Dockerfile, listed on Glama~~ done.
+
 **Next**
-- Optional integration with mcp-posture: run it alongside, or import its JSON report, and merge both into one report where active results confirm or refute what the metadata announces.
+- Ideas welcome in the issues.
 
 ## Development
 
