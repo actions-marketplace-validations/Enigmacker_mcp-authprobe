@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { isLabProfile, LAB_PROFILES } from "./lab/profiles.js";
 import { startFixture, type Fixture, type FixtureOptions } from "./lab/server.js";
 
@@ -22,8 +23,26 @@ export async function startLab(o: LabCommandOptions): Promise<{ lab: Fixture; ba
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new LabUsageError("--port must be a number between 0 and 65535.");
   const profile = LAB_PROFILES[o.profile];
   const options = { ...(structuredClone(profile.options) as FixtureOptions), host, port };
+  const staticKey = o.profile.startsWith("static-bearer");
+  // A fresh key per run: it only opens this throwaway lab.
+  const key = `lab_${randomBytes(18).toString("base64url")}`;
+  if (staticKey) options.staticKey = { value: key };
   const lab = await startFixture(options);
   const url = lab.mcpUrl;
+  if (staticKey) {
+    const banner = `mcp-authprobe lab (${o.profile}): ${profile.description}
+MCP endpoint: ${url}
+API key for this run: ${key}
+
+Try it, in another terminal:
+  printf '%s\n' '${key}' > lab.key && chmod 600 lab.key
+  npx mcp-authprobe scan ${url} --allow-private --bearer-file lab.key
+
+Loopback targets need no ownership proof with --allow-private.
+Everything is in memory and lost when the lab stops. Press Ctrl-C to stop.
+`;
+    return { lab, banner };
+  }
   const banner = `mcp-authprobe lab (${o.profile}): ${profile.description}
 MCP endpoint: ${url}
 Test account: test / test

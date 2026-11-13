@@ -6,7 +6,8 @@ import { CATALOGUE } from "./checks/catalogue.js";
 import type { Observation, TestGrant } from "./credentials.js";
 import type { DiscoveryResult } from "./discovery.js";
 import type { HttpClient } from "./net/http.js";
-import { endSession, FOREIGN_ORIGIN, initializeStatus, mcpPost } from "./oauth/mcp-call.js";
+import { runEndpointChecks } from "./checks/endpoint.js";
+import { bearerCredential, initializeStatus } from "./oauth/mcp-call.js";
 import { describe as describeOutcome, exchangeCode, refresh, type CodeExchangeOutcome } from "./oauth/token-client.js";
 import { deleteClient, registerClient, SAFE_DOMAIN, type RegisteredClient } from "./oauth/registration.js";
 import { safeText } from "./redact.js";
@@ -226,7 +227,7 @@ export async function login(opts: LoginOptions): Promise<LoginResult> {
         }
       }
     } else {
-      notes.push("MAP-PKC01, MAP-RDR03, MAP-COD01, MAP-AUD01, MAP-ORG01, MAP-TOK01 and MAP-SES01 were not observed: ownership of the contacted hosts is not proven, or --no-probe was used.");
+      notes.push("MAP-PKC01, MAP-RDR03, MAP-COD01, MAP-AUD01, MAP-ORG01, MAP-TOK01, MAP-SES01, MAP-BAT01, MAP-BOD01 and MAP-INJ01 were not observed: ownership of the contacted hosts is not proven, or --no-probe was used.");
     }
 
     // --- The real exchange ---
@@ -390,105 +391,19 @@ async function postExchangeProbes(c: PostExchange): Promise<void> {
     }
   };
 
+  // Checks of the MCP endpoint with the access token, before any refresh
+  // (a refresh may invalidate it): ORG01, TOK01, SES01, BAT01, BOD01, INJ01.
   let control: number | null = null;
   const accessToken = tokens.accessToken;
-  await guard("MAP-ORG01", async () => {
-    control = accessToken ? await initializeStatus(http, target, { token: accessToken }) : null;
-    const lines = [`initialize with a valid token: ${control === null ? "no access token" : `HTTP ${control}`}`];
-    if (!is2xx(control) || !accessToken) {
-      observations.push(observation("MAP-ORG01", target, "error", "Inconclusive: the MCP endpoint did not accept the token just issued for it, so it could not be compared.", lines));
-      return;
+  if (accessToken) {
+    const ep = await runEndpointChecks(http, target, bearerCredential(accessToken));
+    control = ep.control;
+    for (const f of ep.findings) observations.push({ ...f, observedAt: new Date().toISOString() });
+  } else {
+    for (const id of ["MAP-ORG01", "MAP-TOK01", "MAP-SES01", "MAP-BAT01", "MAP-BOD01", "MAP-INJ01"]) {
+      observations.push(observation(id, target, "error", "Inconclusive: the token endpoint issued no access token.", []));
     }
-    const st = await initializeStatus(http, target, { token: accessToken, origin: FOREIGN_ORIGIN });
-    lines.push(`same request with Origin: ${FOREIGN_ORIGIN}: HTTP ${st}`);
-    // The token must still work afterwards, or a 403 could come from a dead token.
-    const again = await initializeStatus(http, target, { token: accessToken });
-    lines.push(`same request again without Origin: HTTP ${again}`);
-    if (!is2xx(again)) {
-      observations.push(observation("MAP-ORG01", target, "error", "Inconclusive: the token stopped working during the check.", lines));
-    } else if (st === 403) {
-      observations.push(observation("MAP-ORG01", target, "pass", "A request from a foreign Origin is refused with 403, even with a valid token.", lines));
-    } else if (st === control) {
-      observations.push(observation("MAP-ORG01", target, "fail", "A request from a foreign Origin is processed like any other: the Origin header is not validated.", lines));
-    } else {
-      observations.push(observation("MAP-ORG01", target, "error", "Unexpected answer to a request from a foreign Origin; inconclusive.", lines));
-    }
-  });
-
-  // Both checks below mean nothing on an endpoint that also serves anonymous requests.
-  let anonymous: number | null = null;
-  try {
-    anonymous = (await mcpPost(http, target, {})).status;
-  } catch {
-    anonymous = null;
   }
-  const anonymousLine = `initialize without any token: ${anonymous === null ? "request failed" : `HTTP ${anonymous}`}`;
-  const servesAnonymous = is2xx(anonymous);
-
-  // MAP-TOK01: the token in the URL instead of the Authorization header.
-  await guard("MAP-TOK01", async () => {
-    const lines = [anonymousLine, `initialize with the token in the Authorization header: ${control === null ? "not available" : `HTTP ${control}`}`];
-    if (servesAnonymous) {
-      observations.push(observation("MAP-TOK01", target, "error", "Inconclusive: the endpoint also answers requests without any token, so a refused query token cannot be observed.", lines));
-      return;
-    }
-    if (!is2xx(control) || !accessToken) {
-      observations.push(observation("MAP-TOK01", target, "error", "Inconclusive: the MCP endpoint did not accept the token just issued for it.", lines));
-      return;
-    }
-    const q = await mcpPost(http, target, { token: accessToken, tokenInQuery: true });
-    lines.push(`same request with the token as ?access_token= and no Authorization header: HTTP ${q.status}`);
-    if (q.sessionId) await endSession(http, target, accessToken, q.sessionId);
-    const again = await mcpPost(http, target, { token: accessToken });
-    if (again.sessionId) await endSession(http, target, accessToken, again.sessionId);
-    lines.push(`control again with the header: HTTP ${again.status}`);
-    if (is2xx(q.status)) {
-      observations.push(observation("MAP-TOK01", target, "fail", "The MCP endpoint accepts an access token in the URL query string, where it ends up in logs, history and Referer headers.", lines));
-    } else if (!is2xx(again.status)) {
-      observations.push(observation("MAP-TOK01", target, "error", "Inconclusive: the token stopped working during the check.", lines));
-    } else if (q.status === 401 || q.status === 400 || q.status === 403) {
-      observations.push(observation("MAP-TOK01", target, "pass", "An access token in the URL query string is refused.", lines));
-    } else {
-      observations.push(observation("MAP-TOK01", target, "error", "Unexpected answer to a request with the token in the URL; inconclusive.", lines));
-    }
-  });
-
-  // MAP-SES01: a session ID alone must not authenticate.
-  await guard("MAP-SES01", async () => {
-    if (!is2xx(control) || !accessToken) {
-      observations.push(observation("MAP-SES01", target, "error", "Inconclusive: the MCP endpoint did not accept the token just issued for it.", []));
-      return;
-    }
-    if (servesAnonymous) {
-      observations.push(observation("MAP-SES01", target, "error", "Inconclusive: the endpoint also answers requests without any token.", [anonymousLine]));
-      return;
-    }
-    const init = await mcpPost(http, target, { token: accessToken });
-    const lines = [`initialize with a valid token: HTTP ${init.status}, ${init.sessionId ? "session ID assigned" : "no session ID"}`];
-    if (!init.sessionId) {
-      observations.push(observation("MAP-SES01", target, "not_applicable", "The server assigned no session ID (stateless): nothing to misuse.", lines));
-      return;
-    }
-    try {
-      const withToken = await mcpPost(http, target, { token: accessToken, sessionId: init.sessionId, method: "ping" });
-      lines.push(`ping with the session ID and the token: HTTP ${withToken.status}`);
-      const without = await mcpPost(http, target, { sessionId: init.sessionId, method: "ping" });
-      lines.push(`ping with the session ID and no token: HTTP ${without.status}`);
-      if (!is2xx(withToken.status)) {
-        observations.push(observation("MAP-SES01", target, "error", "Inconclusive: the session could not be used even with the token.", lines));
-      } else if (is2xx(without.status)) {
-        observations.push(observation("MAP-SES01", target, "fail", "A request carrying only the Mcp-Session-Id, without any token, is processed: whoever sees a session ID can act as the user.", lines));
-      } else if (without.status === 401) {
-        observations.push(observation("MAP-SES01", target, "pass", "A request carrying only the session ID is refused with 401: every request needs its token.", lines));
-      } else if (without.status === 403 || without.status === 400 || without.status === 404) {
-        observations.push(observation("MAP-SES01", target, "pass", `A request carrying only the session ID is refused (HTTP ${without.status}); the MCP specification expects 401 with a WWW-Authenticate challenge.`, lines));
-      } else {
-        observations.push(observation("MAP-SES01", target, "error", "Unexpected answer to a request without a token; inconclusive.", lines));
-      }
-    } finally {
-      await endSession(http, target, accessToken, init.sessionId);
-    }
-  });
 
   await guard("MAP-AUD01", async () => {
     const lines = [`control, token for this server: ${control === null ? "not available" : `HTTP ${control}`}`];

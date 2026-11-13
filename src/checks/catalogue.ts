@@ -178,20 +178,20 @@ export const CATALOGUE: readonly CheckDefinition[] = [
     active: false,
     availability: "available",
     rationale:
-      "The MCP Streamable HTTP transport requires servers to validate the Origin header and answer 403 to an invalid one, so a web page cannot reach the server through the browser (DNS rebinding). One initialize request is sent with a foreign Origin and compared with the same request without Origin; when the server asks for a token first, login observes it again with a valid token.",
+      "The MCP Streamable HTTP transport requires servers to validate the Origin header and answer 403 to an invalid one, so a web page cannot reach the server through the browser (DNS rebinding). Without a credential, one initialize request is sent with a foreign Origin and compared with the same request without Origin. With a credential (login, or a static key with --bearer-file), a foreign Origin, Origin \"null\" and a malformed Origin are each tried with the credential, then the credential is checked again.",
     remediation: "Validate the Origin header on every request to the MCP endpoint and answer 403 Forbidden when it is not an allowed origin.",
     references: [{ title: "MCP specification - Transports (Streamable HTTP, security warning)", url: "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports" }, MCP_SEC],
   },
   {
     id: "MAP-TOK01",
     family: "TOK",
-    title: "MCP endpoint refuses access tokens in the URL",
+    title: "MCP endpoint refuses access tokens and keys in the URL",
     severity: "medium",
     active: true,
     availability: "available",
     rationale:
-      "The MCP specification forbids access tokens in the URI query string: URLs end up in server and proxy logs, browser history and Referer headers. Observed during login: an initialize request carries the token as ?access_token= without an Authorization header, and must be refused.",
-    remediation: "Accept access tokens only in the Authorization header (Bearer), and refuse requests that carry an access_token query parameter.",
+      "The MCP specification forbids access tokens in the URI query string: URLs end up in server and proxy logs, browser history and Referer headers. With the access token from login, or a static key from --bearer-file, an initialize request carries the credential as ?access_token=, ?api_key=, ?key= and ?token= without any header; each must be refused.",
+    remediation: "Accept credentials only in a request header (Authorization: Bearer, or your API key header), and refuse requests that carry one in a query parameter.",
     references: [MCP_AUTH, OAUTH21, { title: "RFC 6750 - Bearer Token Usage, section 2.3", url: "https://www.rfc-editor.org/rfc/rfc6750#section-2.3" }],
   },
   {
@@ -217,6 +217,62 @@ export const CATALOGUE: readonly CheckDefinition[] = [
       "If the MCP endpoint answers a foreign Origin with Access-Control-Allow-Origin set to that origin and Access-Control-Allow-Credentials: true, any website can make a logged-in user's browser call it with their cookies and read the answers. A CORS preflight and an ordinary request are sent with a foreign Origin and the CORS headers are read.",
     remediation: "Do not reflect arbitrary origins. Allow only the origins you serve, and never combine a broad origin policy with Access-Control-Allow-Credentials: true.",
     references: [MCP_SEC, { title: "Fetch Standard - CORS protocol", url: "https://fetch.spec.whatwg.org/#http-cors-protocol" }],
+  },
+  {
+    id: "MAP-BAT01",
+    family: "BAT",
+    title: "MCP endpoint refuses JSON-RPC batches",
+    severity: "medium",
+    active: true,
+    availability: "available",
+    rationale:
+      "Since the 2025-06-18 revision, an MCP POST body must be a single JSON-RPC message. A server that still executes batches runs many requests for one HTTP request, so limits counted per request (rate limits, quotas, logs) see one call: an amplification and a way around them. One POST carries a batch of 5 ping requests (no tool is called), with the credential from login or --bearer-file.",
+    remediation: "Reject JSON-RPC arrays on the MCP endpoint (400 Bad Request), or at least count each message against your limits. The TypeScript SDK 1.x still accepts batches of up to 100 messages by default, so servers built on it need their own check.",
+    references: [
+      { title: "MCP specification - Transports (Sending messages to the server)", url: "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports" },
+      { title: "MCP specification 2025-06-18 - Key changes (batching removed)", url: "https://modelcontextprotocol.io/specification/2025-06-18/changelog" },
+    ],
+  },
+  {
+    id: "MAP-BOD01",
+    family: "BOD",
+    title: "MCP endpoint limits the request body size",
+    severity: "low",
+    active: true,
+    availability: "available",
+    rationale:
+      "Without a body size limit, a few large requests can exhaust the server's memory. Two 6 MiB ping requests are sent with the credential, one with Content-Length and one chunked (no Content-Length, which some limits forget); each should be refused, ideally with 413.",
+    remediation: "Set a body size limit on the MCP endpoint (the TypeScript SDK 1.x uses 4 MiB by default), enforced for chunked requests too, and answer 413 Payload Too Large.",
+    references: [{ title: "RFC 9110 - 413 Content Too Large", url: "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14" }, MCP_SEC],
+  },
+  {
+    id: "MAP-INJ01",
+    family: "INJ",
+    title: "Tool, prompt and resource metadata carry no hidden instructions",
+    severity: "high",
+    active: true,
+    availability: "available",
+    rationale:
+      "The client's model reads tool, prompt and resource descriptions, input schemas and the initialize instructions as trusted context. Hidden characters (Unicode tags, zero-width and bidi controls, ANSI escapes) or instruction-like text there (\"ignore previous instructions\", <IMPORTANT> blocks, \"do not tell the user\", paths such as ~/.ssh) is a prompt injection every user of the server receives: tool poisoning. Only the list methods are sent (tools/list, prompts/list, resources/list, resources/templates/list); no tool is called and no resource is read. The report names where something matched, never the suspicious text itself. Pattern matching: a pass is not a proof, and a match is something to review.",
+    remediation:
+      "Keep descriptions plain, visible text about what the tool does. Strip invisible and control characters from anything generated or imported into descriptions (for instance from a third-party API or a package), never put instructions for the model about other tools, files or the user into metadata, and review metadata changes like code. Tool names: 1 to 128 of A-Z a-z 0-9 _ - . (MCP 2025-11-25).",
+    references: [
+      { title: "MCP specification - Tools, security considerations", url: "https://modelcontextprotocol.io/specification/2025-11-25/server/tools#security-considerations" },
+      { title: "OWASP LLM01:2025 Prompt Injection", url: "https://genai.owasp.org/llmrisk/llm01-prompt-injection/" },
+      MCP_SEC,
+    ],
+  },
+  {
+    id: "MAP-THR02",
+    family: "THR",
+    title: "MCP endpoint rate-limits each credential",
+    severity: "low",
+    active: true,
+    availability: "available",
+    rationale:
+      "A static API key or a token that can call the endpoint without limit lets one leaked or abused credential run up costs or overload the server. Up to 30 ping requests (--rate-attempts, 10 to 100; no tool is called) are sent with the static key from --bearer-file; a 429 or a Retry-After header counts as a limit. Runs last, since a limited key may be refused for a while.",
+    remediation: "Rate-limit the MCP endpoint per credential, answer 429 Too Many Requests with Retry-After, and count each JSON-RPC message, not each HTTP request.",
+    references: [{ title: "RFC 6585 - 429 Too Many Requests", url: "https://www.rfc-editor.org/rfc/rfc6585#section-4" }, MCP_SEC],
   },
   {
     id: "MAP-THR01",

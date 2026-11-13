@@ -5,6 +5,7 @@ import { LabUsageError, startLab } from "../src/lab-command.js";
 import { connect } from "node:net";
 import { startFixture, type Fixture } from "../src/lab/server.js";
 import { login } from "../src/login.js";
+import { bearerCredential } from "../src/oauth/mcp-call.js";
 import { HttpClient } from "../src/net/http.js";
 import { scan } from "../src/scan.js";
 
@@ -103,6 +104,7 @@ describe("lab", () => {
       "MAP-SES01": "fail",
       "MAP-COR01": "fail",
       "MAP-THR01": "fail",
+      "MAP-INJ01": "fail",
     });
   });
 
@@ -110,6 +112,22 @@ describe("lab", () => {
     const { result, status } = await runLab("secure");
     expect(result.grant).not.toBeNull();
     const notPassing = Object.entries(status).filter(([, s]) => s !== "pass" && s !== "not_applicable");
-    expect(notPassing).toEqual([["MAP-CSR01", "skipped"]]);
+    // CSR01 needs the browser; THR02 needs a static key (OAuth profile).
+    expect(notPassing.sort()).toEqual([["MAP-CSR01", "skipped"], ["MAP-THR02", "skipped"]]);
+  });
+
+  it.each([
+    ["static-bearer", "fail"],
+    ["static-bearer-secure", "pass"],
+  ] as const)("%s: a scan with the printed key reports the expected results", async (profile, expected) => {
+    const started = await startLab({ profile, port: 0, host: "127.0.0.1" });
+    lab = started.lab;
+    const key = /API key for this run: (\S+)/.exec(started.banner)?.[1] as string;
+    expect(key).toMatch(/^lab_/);
+    const report = await scan(lab.mcpUrl, { allowPrivate: true, credential: bearerCredential(key, "authorization", "static") });
+    const status = Object.fromEntries(report.findings.map((f) => [f.checkId, f.status]));
+    expect(status["MAP-DSC01"]).toBe("not_applicable");
+    for (const id of ["MAP-ORG01", "MAP-TOK01", "MAP-BAT01", "MAP-BOD01", "MAP-INJ01", "MAP-THR02"]) expect([id, status[id]]).toEqual([id, expected]);
+    expect(status["MAP-COR01"]).toBe(expected);
   });
 });

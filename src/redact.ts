@@ -16,8 +16,17 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /((?:access_token|refresh_token|id_token|client_secret|code|code_verifier|password)["']?\s*[=:]\s*["']?)[^"'&\s,}]{4,}/gi,
 ];
 
+/** Exact values to hide everywhere (a static API key read from --bearer-file). */
+const KNOWN_SECRETS = new Set<string>();
+
+/** Registers a secret so that any later report or log line masks it. */
+export function registerSecret(value: string): void {
+  if (value.length >= 4) KNOWN_SECRETS.add(value);
+}
+
 export function redactSecrets(input: string): string {
   let out = input;
+  for (const secret of KNOWN_SECRETS) out = out.split(secret).join("[REDACTED]");
   for (const pattern of SECRET_PATTERNS) {
     out = out.replace(pattern, (match, prefix?: string) =>
       typeof prefix === "string" && match.startsWith(prefix) ? `${prefix}[REDACTED]` : "[REDACTED]",

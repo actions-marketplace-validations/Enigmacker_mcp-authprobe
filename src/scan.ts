@@ -4,7 +4,8 @@ import { runRefreshTokenChecks } from "./checks/refresh-tokens.js";
 import { runThrottlingCheck } from "./checks/throttling.js";
 import type { Observation, TestGrant } from "./credentials.js";
 import { discover, type DiscoveryResult } from "./discovery.js";
-import { FOREIGN_ORIGIN, initializeStatus } from "./oauth/mcp-call.js";
+import { runEndpointChecks, runMetadataCheck } from "./checks/endpoint.js";
+import { FOREIGN_ORIGIN, initializeStatus, type Credential } from "./oauth/mcp-call.js";
 import { HttpClient } from "./net/http.js";
 import { verifyOwnership, type OwnershipResult, type VerifyOptions } from "./ownership.js";
 import { safeText } from "./redact.js";
@@ -32,6 +33,13 @@ export interface ScanOptions {
   throttleAttempts?: number;
   /** Results observed during `login` (PKC01, RDR03, COD01, AUD01, ORG01, TOK01, SES01), read from the grant file. */
   observations?: Observation[];
+  /**
+   * Static API key for servers authenticated without OAuth (--bearer-file).
+   * Only sent to the target, and only once ownership of it is proven.
+   */
+  credential?: Credential;
+  /** Requests sent by MAP-THR02 with the static key (clamped to 10-100, default 30). */
+  rateAttempts?: number;
   /** Test hooks. */
   resolveTxtRecords?: VerifyOptions["resolveTxtRecords"];
   wellKnownBaseUrl?: string;
@@ -49,7 +57,7 @@ function finding(def: CheckDefinition, target: string, status: Finding["status"]
   };
 }
 
-function dsc01(def: CheckDefinition, d: DiscoveryResult): Finding {
+function dsc01(def: CheckDefinition, d: DiscoveryResult, staticKey: boolean): Finding {
   const missing: string[] = [];
   if (!d.prm) missing.push("Protected Resource Metadata");
   if (!d.as) missing.push("Authorization Server Metadata");
@@ -62,6 +70,11 @@ function dsc01(def: CheckDefinition, d: DiscoveryResult): Finding {
     ...d.notes,
   ];
   if (missing.length === 0) return finding(def, d.mcpUrl, "pass", "Authorization endpoints discovered.", evidence);
+  // A server authenticated by a static key publishes no OAuth metadata: that is expected,
+  // but only when the operator says so (a plain 401 also looks like a broken OAuth setup).
+  if (staticKey && !d.prm && !d.as && !d.challenge.resourceMetadataUrl) {
+    return finding(def, d.mcpUrl, "not_applicable", "No OAuth discovery, as expected for a server authenticated by a static key (--bearer-file).", evidence);
+  }
   return finding(def, d.mcpUrl, "fail", `Missing: ${missing.join(", ")}. Active checks cannot run.`, evidence);
 }
 
@@ -81,6 +94,8 @@ export function hostsToVerify(mcpUrl: string, d: DiscoveryResult | null): string
 }
 
 const RTK_IDS = ["MAP-RTK01", "MAP-RTK02", "MAP-RTK03"];
+/** Checks of the MCP endpoint that need a working credential. */
+const ENDPOINT_IDS = ["MAP-ORG01", "MAP-TOK01", "MAP-SES01", "MAP-BAT01", "MAP-BOD01", "MAP-INJ01", "MAP-THR02"];
 
 async function runRefreshFamily(target: string, d: DiscoveryResult | null, http: HttpClient, options: ScanOptions): Promise<Finding[]> {
   const defs = RTK_IDS.map((id) => CATALOGUE.find((c) => c.id === id)).filter((c): c is CheckDefinition => c !== undefined);
@@ -107,6 +122,23 @@ function fromObservation(checkId: string, target: string, observations: Observat
   const obs = observations.filter((o) => o.checkId === checkId && o.target === target).at(-1);
   if (!obs) return finding(def, target, "skipped", "Observed during login: run `mcp-authprobe login` with ownership proven, then scan with the grant file it writes.");
   return finding(def, target, obs.status, obs.message, [...obs.evidence, `observed during login at ${obs.observedAt}`]);
+}
+
+/**
+ * MAP-INJ01 without a credential: the result observed during `login`, or,
+ * for a server that answers anonymous requests, a reading without one.
+ */
+async function metadataWithoutCredential(target: string, http: HttpClient, observations: Observation[]): Promise<Finding> {
+  const def = CATALOGUE.find((c) => c.id === "MAP-INJ01") as CheckDefinition;
+  if (observations.some((o) => o.checkId === def.id && o.target === target)) return fromObservation(def.id, target, observations);
+  let anonymous: number;
+  try {
+    anonymous = await initializeStatus(http, target);
+  } catch (err) {
+    return finding(def, target, "error", `Request failed: ${(err as Error).message}`);
+  }
+  if (anonymous >= 200 && anonymous < 300) return runMetadataCheck(http, target);
+  return finding(def, target, "skipped", "Needs a credential: run `mcp-authprobe login` (ownership proven) and scan with the grant file it writes, or pass a static key with --bearer-file.", [`initialize without any credential: HTTP ${anonymous}`]);
 }
 
 /**
@@ -218,7 +250,7 @@ async function runCorsCheck(target: string, http: HttpClient): Promise<Finding> 
  * Origin. Without a token most servers answer 401 before looking at Origin;
  * `login` then observes it with a valid token.
  */
-async function runOriginCheck(target: string, http: HttpClient, observations: Observation[]): Promise<Finding> {
+async function runOriginCheck(target: string, http: HttpClient, observations: Observation[], staticKey = false): Promise<Finding> {
   const def = CATALOGUE.find((c) => c.id === "MAP-ORG01") as CheckDefinition;
   if (observations.some((o) => o.checkId === def.id && o.target === target)) return fromObservation(def.id, target, observations);
   let baseline: number;
@@ -235,7 +267,10 @@ async function runOriginCheck(target: string, http: HttpClient, observations: Ob
     return finding(def, target, "fail", "A request from a foreign Origin is processed like any other: the Origin header is not validated.", evidence);
   }
   if (baseline === 401 && foreign === 401) {
-    return finding(def, target, "error", "Inconclusive: the server asks for authentication before looking at Origin. Run `mcp-authprobe login` (ownership proven) to observe it with a valid token.", evidence);
+    const next = staticKey
+      ? "Prove ownership of the target so the declared key can be used, then scan again."
+      : "Run `mcp-authprobe login` (ownership proven) to observe it with a valid token, or pass a static key with --bearer-file.";
+    return finding(def, target, "error", `Inconclusive: the server asks for authentication before looking at Origin. ${next}`, evidence);
   }
   return finding(def, target, "error", "Unexpected answers; inconclusive.", evidence);
 }
@@ -253,7 +288,7 @@ export async function scan(mcpUrl: string, options: ScanOptions = {}): Promise<S
     const dscDef = CATALOGUE.find((c) => c.id === "MAP-DSC01");
     try {
       discovery = await discover(target, http);
-      if (dscDef) findings.push(dsc01(dscDef, discovery));
+      if (dscDef) findings.push(dsc01(dscDef, discovery, options.credential?.kind === "static"));
     } catch (err) {
       if (dscDef) findings.push(finding(dscDef, target, "error", `Discovery failed: ${(err as Error).message}`));
     }
@@ -276,7 +311,17 @@ export async function scan(mcpUrl: string, options: ScanOptions = {}): Promise<S
 
     const wanted: CheckSelector = options.select ?? (() => true);
     const anyOf = (ids: string[]): boolean => ids.some(wanted);
-    if (wanted("MAP-ORG01")) findings.push(await runOriginCheck(target, http, options.observations ?? []));
+    // With a static key and ownership proven, the MCP endpoint checks run with the key.
+    const handled = new Set<string>();
+    if (options.credential && verified) {
+      const ids = (["MAP-ORG01", "MAP-TOK01", "MAP-SES01", "MAP-BAT01", "MAP-BOD01", "MAP-INJ01", "MAP-THR02"] as const).filter(wanted);
+      if (ids.length > 0) {
+        const ep = await runEndpointChecks(http, target, options.credential, { checks: ids, ...(options.rateAttempts !== undefined ? { rateAttempts: options.rateAttempts } : {}) });
+        findings.push(...ep.findings);
+        for (const id of ids) handled.add(id);
+      }
+    }
+    if (wanted("MAP-ORG01") && !handled.has("MAP-ORG01")) findings.push(await runOriginCheck(target, http, options.observations ?? [], options.credential?.kind === "static"));
     if (wanted("MAP-COR01")) findings.push(await runCorsCheck(target, http));
 
     const active = CATALOGUE.filter((c) => c.active);
@@ -284,17 +329,27 @@ export async function scan(mcpUrl: string, options: ScanOptions = {}): Promise<S
       for (const def of active) {
         findings.push(finding(def, target, "skipped", "Ownership of every contacted host is not proven; active check not run."));
       }
+    } else if (options.credential?.kind === "static" && discovery !== null && !discovery.prm && !discovery.as && !discovery.challenge.resourceMetadataUrl) {
+      // No OAuth on this server: the authorization server checks do not apply.
+      for (const def of active.filter((c) => !handled.has(c.id) && !ENDPOINT_IDS.includes(c.id))) {
+        findings.push(finding(def, target, "not_applicable", "The server does not use OAuth (static key declared, no authorization server discovered)."));
+      }
     } else {
       // The refresh token checks are one sequence: they run together, or not at all (the grant is untouched).
       if (anyOf(RTK_IDS)) findings.push(...(await runRefreshFamily(target, discovery, http, options)));
       if (anyOf(["MAP-RDR01", "MAP-RDR02", "MAP-RDR04"])) findings.push(...(await runRedirectFamily(target, discovery, http, wanted)));
-      for (const id of ["MAP-RDR03", "MAP-PKC01", "MAP-COD01", "MAP-AUD01", "MAP-TOK01", "MAP-SES01"]) {
-        findings.push(fromObservation(id, target, options.observations ?? []));
+      for (const id of ["MAP-RDR03", "MAP-PKC01", "MAP-COD01", "MAP-AUD01", "MAP-TOK01", "MAP-SES01", "MAP-BAT01", "MAP-BOD01"]) {
+        if (!handled.has(id)) findings.push(fromObservation(id, target, options.observations ?? []));
       }
+      if (wanted("MAP-INJ01") && !handled.has("MAP-INJ01")) findings.push(await metadataWithoutCredential(target, http, options.observations ?? []));
       const csr = CATALOGUE.find((c) => c.id === "MAP-CSR01") as CheckDefinition;
       findings.push(finding(csr, target, "skipped", "Needs a logged-in browser session: run `mcp-authprobe consent-check` separately."));
       // Last on purpose: once throttled, the token endpoint may refuse other checks.
       if (wanted("MAP-THR01")) findings.push(await runThrottleFamily(target, discovery, http, options));
+      if (!handled.has("MAP-THR02")) {
+        const thr02 = CATALOGUE.find((c) => c.id === "MAP-THR02") as CheckDefinition;
+        findings.push(finding(thr02, target, "skipped", "Needs a static key: pass it with --bearer-file."));
+      }
       for (const def of active.filter((c) => c.availability === "planned")) {
         findings.push(finding(def, target, "skipped", "Not implemented in this version yet."));
       }

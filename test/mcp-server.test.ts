@@ -43,12 +43,25 @@ describe("MCP server", () => {
     const scanProps = Object.keys((byName["scan"]?.inputSchema as { properties?: object }).properties ?? {});
     // only/skip can only narrow a scan, never widen it.
     expect(scanProps).toEqual(["url", "only", "skip"]);
+    // Every parameter is documented for the model, and every description says when to use the tool.
+    for (const t of Object.values(byName)) {
+      for (const [name, prop] of Object.entries((t.inputSchema as { properties?: Record<string, { description?: string }> }).properties ?? {})) {
+        expect([t.name, name, (prop.description ?? "").length > 20]).toEqual([t.name, name, true]);
+      }
+      expect([t.name, /\bUse (it|on)\b|Only use/.test(t.description ?? "")]).toEqual([t.name, true]);
+    }
+  });
+
+  it("publishes instructions for the client", async () => {
+    const c = await connect({ allowPrivate: false });
+    expect(c.getInstructions()).toMatch(/ownership_proof.*verify_ownership.*scan/s);
   });
 
   it("lists and explains checks", async () => {
     const c = await connect({ allowPrivate: false });
     expect(textOf(await c.callTool({ name: "list_checks", arguments: {} }))).toContain("MAP-RTK02");
     expect(textOf(await c.callTool({ name: "explain_check", arguments: { id: "MAP-RDR02" } }))).toMatch(/exact string matching|simple string comparison/i);
+    expect(textOf(await c.callTool({ name: "explain_check", arguments: { id: "rdr02" } }))).toMatch(/^MAP-RDR02/);
     const unknown = await c.callTool({ name: "explain_check", arguments: { id: "MAP-XXX99" } });
     expect(unknown.isError).toBe(true);
   });
@@ -148,6 +161,39 @@ describe("MCP server guard rails", () => {
     const c = await connect({ allowPrivate: true });
     const res = await c.callTool({ name: "scan", arguments: { url: "http://mcp.example.com/mcp" } });
     expect(res.isError).toBe(true);
+  });
+});
+
+describe("static key in MCP mode", () => {
+  const KEY = "sk_mcp_mode_0123456789abcdef";
+  const keyPath = (): string => {
+    const p = join(mkdtempSync(join(tmpdir(), "map-mcp-key-")), "key");
+    writeFileSync(p, KEY);
+    chmodSync(p, 0o600);
+    return p;
+  };
+
+  it("needs the URL the key belongs to", () => {
+    expect(() => configFromEnv({ MCP_AUTHPROBE_BEARER_FILE: keyPath() })).toThrow(/MCP_AUTHPROBE_BEARER_TARGET/);
+  });
+
+  it("uses the key only for its own URL", async () => {
+    fixture = await startFixture({ prm: false, asMetadata: false, challenge: "bearer", staticKey: { value: KEY }, mcp: { sessions: false, rateLimit: 20 } });
+    const origin = new URL(fixture.mcpUrl).origin;
+    const config = configFromEnv({
+      MCP_AUTHPROBE_ALLOW_PRIVATE: "1",
+      MCP_AUTHPROBE_LAB_ORIGINS: origin,
+      MCP_AUTHPROBE_BEARER_FILE: keyPath(),
+      MCP_AUTHPROBE_BEARER_TARGET: fixture.mcpUrl,
+    });
+    const c = await connect(config);
+    const ok = await c.callTool({ name: "scan", arguments: { url: fixture.mcpUrl, only: "BAT,TOK" } });
+    const findings = (ok.structuredContent as { report: { findings: Array<{ checkId: string; status: string }> } }).report.findings;
+    expect(findings.find((f) => f.checkId === "MAP-BAT01")?.status).toBe("pass");
+    expect(JSON.stringify(ok)).not.toContain(KEY);
+
+    const other = await c.callTool({ name: "scan", arguments: { url: `${origin}/other`, only: "BAT" } });
+    expect(textOf(other)).toMatch(/belongs to another URL/);
   });
 });
 

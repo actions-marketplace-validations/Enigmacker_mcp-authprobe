@@ -13,6 +13,18 @@ inputs:
     description: Ownership secret (pass it from a repository secret). Without it, only discovery and the passive Origin check run.
     required: false
     default: ""
+  bearer:
+    description: Static API key for a server authenticated without OAuth (pass it from a repository secret). Used only once ownership of the target is proven.
+    required: false
+    default: ""
+  bearer-header:
+    description: Header for the key (default Authorization, sent as Bearer; any other header gets the key as is, e.g. X-API-Key).
+    required: false
+    default: ""
+  rate-attempts:
+    description: Requests sent by MAP-THR02 with the key (10 to 100).
+    required: false
+    default: ""
   fail-on:
     description: Fail the step on a failing check at or above this severity (info, low, medium, high, critical).
     required: false
@@ -92,6 +104,9 @@ runs:
         MAP_ONLY: ${{ inputs.only }}
         MAP_SKIP: ${{ inputs.skip }}
         MAP_POSTURE: ${{ inputs.posture-report }}
+        MAP_BEARER: ${{ inputs.bearer }}
+        MAP_BEARER_HEADER: ${{ inputs.bearer-header }}
+        MAP_RATE: ${{ inputs.rate-attempts }}
         MAP_THROTTLE: ${{ inputs.throttle-attempts }}
         MAP_TIMEOUT: ${{ inputs.timeout }}
         MAP_ALLOW_PRIVATE: ${{ inputs.allow-private }}
@@ -110,6 +125,16 @@ runs:
         [ -n "$MAP_ONLY" ] && args+=(--only "$MAP_ONLY")
         [ -n "$MAP_SKIP" ] && args+=(--skip "$MAP_SKIP")
         [ -n "$MAP_POSTURE" ] && args+=(--posture-report "$MAP_POSTURE")
+        [ -n "$MAP_RATE" ] && args+=(--rate-attempts "$MAP_RATE")
+        keyfile=""
+        if [ -n "$MAP_BEARER" ]; then
+          # The key goes through a private file, never the command line.
+          keyfile="$(umask 077 && mktemp "$RUNNER_TEMP/mcp-authprobe-key.XXXXXX")"
+          printf '%s\n' "$MAP_BEARER" > "$keyfile"
+          args+=(--bearer-file "$keyfile")
+          [ -n "$MAP_BEARER_HEADER" ] && args+=(--bearer-header "$MAP_BEARER_HEADER")
+        fi
+        unset MAP_BEARER
         [ -n "$MAP_THROTTLE" ] && args+=(--throttle-attempts "$MAP_THROTTLE")
         [ -n "$MAP_TIMEOUT" ] && args+=(--timeout "$MAP_TIMEOUT")
         [ "$MAP_ALLOW_PRIVATE" = "true" ] && args+=(--allow-private)
@@ -117,6 +142,7 @@ runs:
         echo "Running $pkg"
         npx --yes --package "$pkg" mcp-authprobe "${args[@]}"
         code=$?
+        [ -n "$keyfile" ] && rm -f "$keyfile"
         failed=0
         if [ -f "$out/report.json" ]; then
           failed=$(node -e 'const r=require(process.argv[1]);console.log(r.findings.filter(f=>f.status==="fail").length)' "$out/report.json")

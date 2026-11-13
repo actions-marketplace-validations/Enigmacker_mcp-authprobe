@@ -70,15 +70,28 @@ jobs:
           echo "tarball=$(pwd)/$(npm pack --silent)" >> "$GITHUB_OUTPUT"
           nohup node dist/cli.js lab --profile secure --port 8787 > secure.log 2>&1 &
           nohup node dist/cli.js lab --profile vulnerable --port 8788 > vulnerable.log 2>&1 &
-          for port in 8787 8788; do
+          nohup node dist/cli.js lab --profile static-bearer-secure --port 8789 > static.log 2>&1 &
+          for port in 8787 8788 8789; do
             for i in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:$port/mcp" && break; sleep 0.5; done
           done
+          # Throwaway key of the static lab, printed in its banner.
+          key=""
+          for i in $(seq 1 20); do key=$(grep -o 'lab_[A-Za-z0-9_-]*' static.log | head -1) && [ -n "$key" ] && break; sleep 0.5; done
+          [ -n "$key" ] || { cat static.log; exit 1; }
+          echo "key=$key" >> "$GITHUB_OUTPUT"
       - name: Secure lab passes (with an mcp-posture report merged)
         uses: ./
         with:
           url: http://127.0.0.1:8787/mcp
           allow-private: "true"
           posture-report: test/fixtures/posture/lab-vulnerable.json
+          package: ${{ steps.pack.outputs.tarball }}
+      - name: Static key lab passes
+        uses: ./
+        with:
+          url: http://127.0.0.1:8789/mcp
+          allow-private: "true"
+          bearer: ${{ steps.pack.outputs.key }}
           package: ${{ steps.pack.outputs.tarball }}
       - name: Vulnerable lab is caught
         id: vulnerable

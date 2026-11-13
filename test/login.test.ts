@@ -55,7 +55,7 @@ describe("login", () => {
   it("obtains a working test grant and observes the login checks as passing", async () => {
     const result = await runLogin({});
     expect(result.grant).toMatchObject({ authMethod: "none", target: (fixture as Fixture).mcpUrl, tokenEndpoint: `${(fixture as Fixture).baseUrl}/token` });
-    expect(statuses(result)).toEqual({ "MAP-PKC01": "pass", "MAP-RDR03": "pass", "MAP-AUD01": "pass", "MAP-ORG01": "pass", "MAP-TOK01": "pass", "MAP-SES01": "pass", "MAP-COD01": "pass" });
+    expect(statuses(result)).toEqual({ "MAP-PKC01": "pass", "MAP-RDR03": "pass", "MAP-AUD01": "pass", "MAP-ORG01": "pass", "MAP-TOK01": "pass", "MAP-SES01": "pass", "MAP-BAT01": "pass", "MAP-BOD01": "pass", "MAP-INJ01": "pass", "MAP-COD01": "pass" });
     expect(result.observations.find((o) => o.checkId === "MAP-COD01")?.message).toMatch(/revoking them on reuse is recommended/);
 
     // The grant (refresh token rotated by the probes) and observations feed a full scan.

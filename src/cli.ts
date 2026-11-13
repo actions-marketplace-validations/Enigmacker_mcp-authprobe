@@ -12,6 +12,7 @@ import { toSarif } from "./report/sarif.js";
 import { colorWanted, toTable } from "./report/table.js";
 import { scan } from "./scan.js";
 import { parseSelection } from "./selection.js";
+import { loadBearerFile } from "./static-key.js";
 import { loadPostureReport, postureSection, type LoadedPosture } from "./posture.js";
 import { severityAtLeast, type Severity } from "./types.js";
 import { TOOL_NAME, TOOL_VERSION } from "./version.js";
@@ -59,6 +60,14 @@ Scan options:
                         Test grant (JSON: client_id, refresh_token, optional
                         client_secret) for the refresh token checks. The grant
                         is consumed: use a dedicated test account.
+  --bearer-file <file>  Static API key for a server authenticated without OAuth
+                        (one line, mode 600). Never put the key on the command line.
+  --bearer-header <name>
+                        Header for the key (default: Authorization, sent as Bearer;
+                        any other header gets the key as is, e.g. X-API-Key)
+  --rate-attempts <n>   Requests sent by MAP-THR02 with the key (10-100, default 30)
+  --fail-on-inconclusive <true|false>
+                        Exit 3 when a check is inconclusive (default: true)
 
 Consent check options (needs the optional playwright-core package and Chrome or Edge):
   --browser <channel>   chrome (default), msedge or chromium
@@ -73,9 +82,15 @@ Login options:
   --allow-private, --secret-file, --timeout  as for scan
 
 Lab options:
-  --profile <name>      vulnerable (default): most checks fail; secure: a compliant server
+  --profile <name>      vulnerable (default): most checks fail; secure: a compliant server;
+                        static-bearer / static-bearer-secure: a server with a static API
+                        key and no OAuth (the key is printed when the lab starts)
   --port <n>            Port on 127.0.0.1 (default: 8787; 0 picks a free port)
   --host <address>      127.0.0.1 (default) or ::1; nothing else is accepted
+
+Exit codes: 0 no failing check at or above --fail-on; 1 failing checks;
+2 usage error; 3 inconclusive checks (unless --fail-on-inconclusive false)
+or a scan that could not run.
 
 The ownership secret is read from ${SECRET_ENV} or --secret-file, never from
 the command line, so it does not end up in shell history or process lists.
@@ -116,6 +131,10 @@ export async function main(argv: string[]): Promise<number> {
       out: { type: "string" },
       "throttle-attempts": { type: "string" },
       only: { type: "string" },
+      "bearer-file": { type: "string" },
+      "bearer-header": { type: "string" },
+      "rate-attempts": { type: "string" },
+      "fail-on-inconclusive": { type: "string" },
       "posture-report": { type: "string" },
       skip: { type: "string" },
       browser: { type: "string" },
@@ -319,6 +338,37 @@ export async function main(argv: string[]): Promise<number> {
       }
       options.throttleAttempts = n;
     }
+    if (values["bearer-header"] !== undefined && !values["bearer-file"]) {
+      err("--bearer-header needs --bearer-file\n");
+      return EXIT.usage;
+    }
+    if (values["bearer-file"]) {
+      try {
+        const loaded = loadBearerFile(values["bearer-file"], values["bearer-header"]);
+        for (const w of loaded.warnings) err(`warning: ${w}\n`);
+        options.credential = loaded.credential;
+      } catch (e) {
+        err(`${(e as Error).message}\n`);
+        return EXIT.usage;
+      }
+    }
+    if (values["rate-attempts"] !== undefined) {
+      const n = Number(values["rate-attempts"]);
+      if (!Number.isInteger(n) || n < 10 || n > 100) {
+        err("--rate-attempts must be an integer between 10 and 100\n");
+        return EXIT.usage;
+      }
+      options.rateAttempts = n;
+    }
+    let failOnInconclusive = true;
+    if (values["fail-on-inconclusive"] !== undefined) {
+      const v = values["fail-on-inconclusive"].toLowerCase();
+      if (!["true", "false", "yes", "no", "1", "0"].includes(v)) {
+        err("--fail-on-inconclusive must be true or false\n");
+        return EXIT.usage;
+      }
+      failOnInconclusive = ["true", "yes", "1"].includes(v);
+    }
     if (values["credentials-file"]) {
       try {
         const loaded = loadGrant(values["credentials-file"]);
@@ -357,7 +407,7 @@ export async function main(argv: string[]): Promise<number> {
     if (values.markdown) writeFileSync(values.markdown, toMarkdown(report));
 
     if (report.findings.some((f) => f.status === "fail" && severityAtLeast(f.severity, failOn))) return EXIT.findings;
-    if (report.findings.some((f) => f.status === "error")) return EXIT.error;
+    if (failOnInconclusive && report.findings.some((f) => f.status === "error")) return EXIT.error;
     return EXIT.ok;
   }
 

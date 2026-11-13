@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/Enigmacker/mcp-authprobe#readme",
-  "version": "0.8.0",
+  "version": "0.10.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mcp-authprobe",
-      "version": "0.8.0",
+      "version": "0.10.1",
       "transport": {
         "type": "stdio"
       },
@@ -56,6 +56,22 @@
           "name": "MCP_AUTHPROBE_TIMEOUT_MS",
           "description": "Per-request timeout in milliseconds (default 10000).",
           "format": "number",
+          "isRequired": false
+        },
+        {
+          "name": "MCP_AUTHPROBE_BEARER_FILE",
+          "description": "Path to a static API key (one line, mode 600) for a server authenticated without OAuth. Needs MCP_AUTHPROBE_BEARER_TARGET.",
+          "format": "filepath",
+          "isRequired": false
+        },
+        {
+          "name": "MCP_AUTHPROBE_BEARER_TARGET",
+          "description": "The exact MCP URL the static key may be used for.",
+          "isRequired": false
+        },
+        {
+          "name": "MCP_AUTHPROBE_BEARER_HEADER",
+          "description": "Header for the static key (default Authorization, sent as Bearer).",
           "isRequired": false
         }
       ]

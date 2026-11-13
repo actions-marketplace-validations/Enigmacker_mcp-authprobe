@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-13
+
+### Changed
+
+- MCP mode: every tool description now says when to use the tool, what it returns and what it never does, every parameter is documented, and the server instructions describe the whole flow (checks, ownership proof, scan) and all check families.
+- `explain_check` also accepts IDs without the `MAP-` prefix, case-insensitive (`rtk02`).
+
+## [0.10.0] - 2026-11-13
+
+### Added
+
+- `MAP-INJ01` (tool poisoning, high): tool, prompt and resource metadata and the initialize `instructions` are read with the list methods only (`tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`; nothing is called or read) and must carry no invisible characters (Unicode tags, decoded before matching; zero-width and bidi controls; ANSI escapes) and no instruction-like text ("ignore previous instructions", `<IMPORTANT>`, "do not tell the user", `~/.ssh`…). Tool names with non-ASCII characters fail too. Runs with a static key, during `login`, or anonymously on a server that answers anonymous requests. The report locates matches and never copies the suspicious text.
+- The `vulnerable` and `static-bearer` lab profiles announce a poisoned tool, prompt and resource; the secure profiles, clean ones.
+
+### Changed
+
+- The lab answers JSON-RPC notifications with 202 and echoes request IDs.
+
+## [0.9.0] - 2026-11-13
+
+Servers authenticated by a static API key (no OAuth) are now tested, following a field trial against one: 0.8.0 skipped 14 of 19 checks there.
+
+### Added
+
+- `--bearer-file <file>` and `--bearer-header <name>`: a static API key, read from a file (warning if other users can read it), never accepted on the command line, masked in every report, and only sent to the target once its ownership is proven. With it, the MCP endpoint checks run with the key. In MCP mode, `MCP_AUTHPROBE_BEARER_FILE` must come with `MCP_AUTHPROBE_BEARER_TARGET`, the only URL the key may be used for. Also `bearer` and `bearer-header` inputs of the GitHub Action.
+- `MAP-BAT01` (JSON-RPC batches): one POST carrying a batch of 5 `ping` requests must be refused; MCP has required one message per request since 2025-06-18, and a server that runs batches counts many calls as one. The TypeScript SDK 1.x accepts batches of up to 100 messages by default.
+- `MAP-BOD01` (body size): two 6 MiB `ping` requests, with `Content-Length` and chunked, must be refused.
+- `MAP-THR02` (rate limit per credential): up to 30 `ping` requests with the static key (`--rate-attempts`, 10 to 100) must meet a 429 or a `Retry-After`.
+- `--fail-on-inconclusive <true|false>` for the CLI (exit code 3 for inconclusive checks stays the default); exit codes documented in the help and the README.
+- Lab profiles `static-bearer` and `static-bearer-secure`, with a key generated at each start.
+
+### Changed
+
+- `MAP-ORG01` with a credential now tries a foreign Origin, `Origin: null` and a malformed Origin.
+- `MAP-TOK01` tries the credential as `?access_token=`, `?api_key=`, `?key=` and `?token=`.
+- The MCP endpoint checks (ORG01, TOK01, SES01, BAT01, BOD01) share one implementation, used by `login` with the OAuth access token and by `scan` with a static key. Only side-effect-free methods are sent: `initialize` and `ping`, never `tools/call`.
+- `MAP-DSC01` and the authorization server checks are *not applicable* when a static key is declared and no OAuth metadata is published.
+
 ## [0.8.0] - 2026-11-04
 
 ### Added
@@ -107,7 +145,8 @@ First release.
 - Hardening from an independent review before release: HTTPS is required for every request outside loopback/private labs; rate limits and server errors make redirect URI, registration and throttling checks inconclusive instead of passing; test grants record their target and token endpoint and are never used elsewhere (and must name their target in MCP mode); loopback targets need a proof in MCP mode unless listed in `MCP_AUTHPROBE_LAB_ORIGINS`; `login` output is neutralized; more IPv6 transition ranges are refused; a malformed issuer no longer aborts discovery.
 - Local fixture server with a stateful token endpoint, dynamic registration and an authorization endpoint and test suite; GitHub Actions CI.
 
-[Unreleased]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Enigmacker/mcp-authprobe/compare/v0.5.0...v0.6.0

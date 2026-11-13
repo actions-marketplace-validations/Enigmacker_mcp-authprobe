@@ -17,7 +17,8 @@ export interface HttpRequest {
   url: string;
   method?: "GET" | "POST" | "DELETE" | "OPTIONS";
   headers?: Record<string, string>;
-  body?: string;
+  /** A string is sent with Content-Length; an async iterable is streamed (chunked). */
+  body?: string | AsyncIterable<Uint8Array>;
   /** Redirects are never followed automatically; callers inspect them. */
 }
 
@@ -128,7 +129,12 @@ export class HttpClient {
       dispatcher: this.dispatcher,
       signal: AbortSignal.timeout(this.timeoutMs),
     };
-    if (req.body !== undefined) init.body = req.body;
+    if (typeof req.body === "string") init.body = req.body;
+    else if (req.body !== undefined) {
+      const source = req.body;
+      init.body = ReadableStream.from(source) as unknown as NonNullable<typeof init.body>;
+      (init as { duplex?: string }).duplex = "half";
+    }
     let res: Awaited<ReturnType<typeof undiciFetch>>;
     try {
       res = await undiciFetch(url, init);
